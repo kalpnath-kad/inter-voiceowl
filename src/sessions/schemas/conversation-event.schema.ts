@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
+import { randomUUID } from 'crypto';
 
 export type ConversationEventDocument = ConversationEvent & Document;
 
@@ -11,7 +12,10 @@ export enum EventType {
 
 @Schema({ timestamps: false })
 export class ConversationEvent {
-  @Prop({ required: true })
+  @Prop({ 
+    required: true,
+    default: () => randomUUID(),
+  })
   eventId: string;
 
   @Prop({ required: true, index: true })
@@ -27,7 +31,11 @@ export class ConversationEvent {
   @Prop({ type: Object, required: true })
   payload: Record<string, any>;
 
-  @Prop({ required: true, index: true })
+  @Prop({ 
+    required: true, 
+    index: true,
+    default: () => new Date(),
+  })
   timestamp: Date;
 }
 

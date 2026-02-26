@@ -51,7 +51,7 @@ export class SessionsController {
   @ApiOperation({
     summary: 'Add an event to a session',
     description:
-      'Adds a new event to an existing session. The eventId must be unique per session. Duplicate requests will not create duplicate events (idempotent).',
+      'Adds a new event to an existing session. The eventId is automatically generated and unique per session. Each request creates a new event.',
   })
   @ApiParam({
     name: 'sessionId',

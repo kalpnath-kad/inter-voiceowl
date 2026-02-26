@@ -1,11 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { ConversationSession, ConversationSessionDocument } from '../schemas/conversation-session.schema';
+import { ConversationSession, ConversationSessionDocument, SessionStatus } from '../schemas/conversation-session.schema';
 import { ConversationEvent, ConversationEventDocument } from '../schemas/conversation-event.schema';
 
 @Injectable()
 export class SessionRepository {
+  private readonly logger = new Logger(SessionRepository.name);
+
   constructor(
     @InjectModel(ConversationSession.name)
     private sessionModel: Model<ConversationSessionDocument>,
@@ -44,10 +46,10 @@ export class SessionRepository {
 
   async updateStatus(
     sessionId: string,
-    status: string,
+    status: SessionStatus,
     endedAt?: Date,
   ): Promise<ConversationSessionDocument | null> {
-    const update: any = { status };
+    const update: Partial<ConversationSession> = { status };
     if (endedAt !== undefined) {
       update.endedAt = endedAt;
     }
@@ -89,11 +91,20 @@ export class SessionRepository {
           },
         )
         .exec();
-    } catch (error: any) {
+    } catch (error: unknown) {
       // If duplicate key error, event already exists - fetch and return it
-      if (error.code === 11000) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 11000) {
+        this.logger.debug(
+          `Event ${eventId} already exists for session ${sessionId}, fetching existing`,
+        );
         return this.findEventBySessionAndEventId(sessionId, eventId);
       }
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        `Database error while upserting event ${eventId} for session ${sessionId}: ${errorMessage}`,
+        errorStack,
+      );
       throw error;
     }
   }

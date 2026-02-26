@@ -1,16 +1,8 @@
-import { IsString, IsEnum, IsObject, IsDate, IsOptional } from 'class-validator';
-import { Type } from 'class-transformer';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEnum, IsObject } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 import { EventType } from '../schemas/conversation-event.schema';
 
 export class CreateEventDto {
-  @ApiProperty({
-    description: 'Unique event identifier within the session',
-    example: 'event-456',
-  })
-  @IsString()
-  eventId: string;
-
   @ApiProperty({
     description: 'Type of event',
     enum: EventType,
@@ -25,13 +17,4 @@ export class CreateEventDto {
   })
   @IsObject()
   payload: Record<string, any>;
-
-  @ApiPropertyOptional({
-    description: 'Event timestamp (defaults to current time if not provided)',
-    example: '2024-01-01T00:00:00Z',
-  })
-  @IsOptional()
-  @IsDate()
-  @Type(() => Date)
-  timestamp?: Date;
 }

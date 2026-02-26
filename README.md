@@ -16,16 +16,24 @@ npm install
 
 ## Configuration
 
-Set the MongoDB connection string via environment variable:
+Copy the example environment file and configure your variables:
 
 ```bash
-export MONGODB_URI=mongodb://localhost:27017/voiceowl
+cp .env.example .env
 ```
 
-Or create a `.env` file:
+Then edit `.env` with your configuration:
 
 ```
+PORT=3000
 MONGODB_URI=mongodb://localhost:27017/voiceowl
+```
+
+Alternatively, you can set environment variables directly:
+
+```bash
+export PORT=3000
+export MONGODB_URI=mongodb://localhost:27017/voiceowl
 ```
 
 ## Running the Application
