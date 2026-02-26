@@ -12,6 +12,10 @@ export enum SessionStatus {
 
 @Schema({ timestamps: false })
 export class ConversationSession {
+  /**
+   * Unique session identifier (UUID format)
+   * Must be provided externally - not auto-generated
+   */
   @Prop({ required: true, unique: true, index: true })
   sessionId: string;
 

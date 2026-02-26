@@ -27,6 +27,7 @@ Then edit `.env` with your configuration:
 ```
 PORT=3000
 MONGODB_URI=mongodb://localhost:27017/voiceowl
+MONGODB_MAX_TIME_MS=30000
 ```
 
 Alternatively, you can set environment variables directly:
@@ -34,7 +35,14 @@ Alternatively, you can set environment variables directly:
 ```bash
 export PORT=3000
 export MONGODB_URI=mongodb://localhost:27017/voiceowl
+export MONGODB_MAX_TIME_MS=30000
 ```
+
+### Environment Variables
+
+- **PORT**: Application port (default: 3000)
+- **MONGODB_URI**: MongoDB connection string (required)
+- **MONGODB_MAX_TIME_MS**: Maximum query execution time in milliseconds (default: 30000 / 30 seconds)
 
 ## Running the Application
 
@@ -65,12 +73,14 @@ POST /sessions
 Content-Type: application/json
 
 {
-  "sessionId": "session-123",
+  "sessionId": "550e8400-e29b-41d4-a716-446655440000",
   "language": "en",
   "status": "initiated",
   "metadata": {}
 }
 ```
+
+**Note**: `sessionId` must be a valid UUID format (provided externally).
 
 ### 2. Add Event to Session
 ```http
@@ -78,10 +88,21 @@ POST /sessions/:sessionId/events
 Content-Type: application/json
 
 {
-  "eventId": "event-456",
   "type": "user_speech",
-  "payload": { "text": "Hello" },
-  "timestamp": "2024-01-01T00:00:00Z"
+  "payload": { "text": "Hello" }
+}
+```
+
+**Optional fields**:
+- `eventId`: UUID format (if not provided, will be auto-generated)
+- `timestamp`: Automatically set to current time (server-side)
+
+**Example with eventId**:
+```json
+{
+  "eventId": "550e8400-e29b-41d4-a716-446655440001",
+  "type": "user_speech",
+  "payload": { "text": "Hello" }
 }
 ```
 
@@ -102,7 +123,11 @@ src/
 ├── main.ts                    # Application entry point
 ├── app.module.ts              # Root module
 ├── common/
-│   └── filters/               # Exception filters
+│   ├── filters/               # Exception filters
+│   ├── interceptors/          # Request/response interceptors
+│   └── validators/            # Custom validators (UUID)
+├── database/
+│   └── mongo.module.ts        # MongoDB connection and configuration
 ├── sessions/
 │   ├── schemas/               # Mongoose schemas
 │   ├── dto/                   # Data transfer objects
@@ -112,6 +137,15 @@ src/
 │   ├── sessions.service.ts    # Business logic
 │   └── sessions.module.ts    # Feature module
 ```
+
+## Features
+
+- **Idempotent Operations**: All endpoints support idempotent requests
+- **Request Logging**: All HTTP requests and responses are logged
+- **Query Timeout**: MongoDB queries have configurable timeout (default: 30s)
+- **Error Handling**: Comprehensive error handling with proper HTTP status codes
+- **Graceful Shutdown**: Handles SIGINT/SIGTERM signals for clean shutdown
+- **API Documentation**: Interactive Swagger UI for testing endpoints
 
 ## Design Decisions
 

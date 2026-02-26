@@ -62,10 +62,10 @@ export class SessionsService {
         throw new NotFoundException(`Session with ID ${sessionId} not found`);
       }
 
-      // Generate unique eventId
-      const eventId = randomUUID();
+      // Use provided eventId or generate one if not provided
+      const eventId = dto.eventId || randomUUID();
 
-      // Create new event (eventId and timestamp are auto-generated)
+      // Create new event (timestamp is auto-generated)
       const event = await this.sessionRepository.createEvent({
         eventId,
         sessionId,

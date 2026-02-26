@@ -1,11 +1,8 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
 import { SessionsModule } from './sessions/sessions.module';
+import { MongoDatabaseModule } from './database/mongo.module';
 
 @Module({
-  imports: [
-    MongooseModule.forRoot(process.env.MONGODB_URI || 'mongodb://localhost:27017/voiceowl'),
-    SessionsModule,
-  ],
+  imports: [MongoDatabaseModule, SessionsModule],
 })
 export class AppModule {}

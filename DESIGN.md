@@ -13,13 +13,22 @@ Idempotency is ensured through multiple mechanisms:
 
 ### Event Creation (POST /sessions/:sessionId/events)
 - **Compound Unique Index**: A compound unique index on `(sessionId, eventId)` ensures that each `eventId` is unique per session
-- **Atomic Upsert**: Similar to session creation, uses `findOneAndUpdate` with `upsert: true` and `$setOnInsert`
-- **Immutability**: Once created, events cannot be modified, ensuring idempotent behavior - duplicate requests return the existing event
+- **Optional eventId**: The `eventId` can be provided externally (must be valid UUID format) or will be auto-generated if not provided
+- **Idempotency with provided eventId**: If `eventId` is provided and an event with the same `(sessionId, eventId)` already exists, the unique constraint will prevent duplicate creation, allowing the client to handle idempotency
+- **Auto-generated eventId**: If `eventId` is not provided, a UUID is auto-generated, ensuring each request creates a new unique event
+- **Auto-generated timestamp**: The `timestamp` is automatically set to the current date/time when the event is created
 
 ### Session Completion (POST /sessions/:sessionId/complete)
 - **Status Check**: Before updating, checks if the session is already completed
 - **Idempotent Update**: If already completed, returns the session as-is without modification
 - **Atomic Update**: Uses `findOneAndUpdate` for atomic status updates
+
+### Query Timeout Protection
+- **Global maxTimeMS**: All MongoDB queries have a maximum execution time (default: 30 seconds)
+- **Prevents Long-Running Queries**: Queries exceeding the timeout are automatically cancelled
+- **Configurable**: Timeout can be adjusted via `MONGODB_MAX_TIME_MS` environment variable
+- **Applied Globally**: Mongoose plugin ensures all query operations respect the timeout
+- **Per-Query Override**: Individual queries can still set their own `maxTimeMS` if needed
 
 ## 2. How does your design behave under concurrent requests?
 
@@ -39,10 +48,12 @@ The design handles concurrent requests safely through:
 - Both clients receive the same session (idempotent)
 
 **Concurrent Event Creation:**
-- Two requests with the same `(sessionId, eventId)` arrive simultaneously
-- The compound unique index ensures only one insert succeeds
-- The other request either gets the existing event (if upsert returns it) or catches the duplicate key error and fetches the existing event
-- Both clients receive the same event (idempotent)
+- **With provided eventId**: Two requests with the same `(sessionId, eventId)` arrive simultaneously
+  - The compound unique index ensures only one insert succeeds
+  - The other request will receive a duplicate key error (MongoDB error code 11000)
+  - The application can handle this by fetching the existing event, ensuring idempotent behavior
+- **Without eventId (auto-generated)**: Each request generates a unique UUID, so concurrent requests will create different events (as intended)
+- **Timestamp**: Automatically set server-side, ensuring consistency and preventing timestamp manipulation
 
 **Concurrent Session Completion:**
 - Multiple requests to complete the same session
@@ -57,7 +68,8 @@ The design handles concurrent requests safely through:
 1. **`sessionId` (unique, single field)**
    - **Purpose**: Primary lookup key, ensures uniqueness
    - **Usage**: All session queries use `sessionId`
-   - **Why**: Fast O(log n) lookups, prevents duplicates
+   - **Format**: Must be a valid UUID (provided externally)
+   - **Why**: Fast O(log n) lookups, prevents duplicates, UUID format ensures global uniqueness
 
 2. **`status` (single field)**
    - **Purpose**: Filter sessions by status
@@ -98,8 +110,9 @@ The design handles concurrent requests safely through:
 
 4. **`{ sessionId: 1, eventId: 1 }` (compound, unique)**
    - **Purpose**: Ensures eventId uniqueness per session, enables fast lookups
-   - **Usage**: Idempotency checks, duplicate prevention
-   - **Why**: Critical for data integrity and idempotency
+   - **Usage**: Idempotency checks when eventId is provided externally, duplicate prevention
+   - **Format**: eventId is UUID format (can be provided externally or auto-generated)
+   - **Why**: Critical for data integrity and idempotency when eventId is provided by the client
 
 5. **`{ sessionId: 1, timestamp: 1 }` (compound)**
    - **Purpose**: Efficient retrieval of events for a session, ordered by timestamp
@@ -107,19 +120,56 @@ The design handles concurrent requests safely through:
    - **Why**: Optimizes the most common query pattern - fetching events for a session in chronological order
 
 ### Index Strategy Rationale:
+
+#### ESR (Equality, Sort, Range) Rule
+MongoDB compound indexes follow the **ESR (Equality, Sort, Range)** rule for optimal query performance:
+
+1. **Equality (E)**: Fields used with exact matches (`$eq`, `$in` with small arrays) should come first
+2. **Sort (S)**: Fields used for sorting should come after equality fields
+3. **Range (R)**: Fields used with range queries (`$gt`, `$lt`, `$gte`, `$lte`, `$ne`, `$nin`) should come last
+
+**Why ESR matters:**
+- MongoDB can use an index most efficiently when fields are ordered E → S → R
+- Equality filters narrow down the result set first
+- Sort fields can use the index for sorting without an in-memory sort
+- Range fields can still use the index but are less selective
+- Violating ESR can cause index inefficiency or force in-memory sorts
+
+**Examples from our indexes:**
+
+1. **`{ sessionId: 1, timestamp: 1 }`** (ConversationEvent)
+   - **E**: `sessionId` (equality filter: `sessionId = 'xxx'`)
+   - **S**: `timestamp` (sort: `sort({ timestamp: 1 })`)
+   - **Usage**: `find({ sessionId: 'xxx' }).sort({ timestamp: 1 })` - Perfect ESR match
+
+2. **`{ status: 1, startedAt: -1 }`** (ConversationSession)
+   - **E**: `status` (equality filter: `status = 'active'`)
+   - **S**: `startedAt` (sort: `sort({ startedAt: -1 })`)
+   - **Usage**: `find({ status: 'active' }).sort({ startedAt: -1 })` - Perfect ESR match
+
+3. **`{ sessionId: 1, eventId: 1 }`** (ConversationEvent, unique)
+   - **E**: `sessionId` (equality filter)
+   - **E**: `eventId` (equality filter for uniqueness check)
+   - **Usage**: Both fields used for exact matching - optimal for uniqueness constraint
+
+#### General Principles:
 - **Single-field indexes** on frequently queried fields enable fast filtering
-- **Compound indexes** support common query patterns (filter + sort)
+- **Compound indexes** support common query patterns (filter + sort) following ESR rule
 - **Unique indexes** enforce data integrity and enable idempotency
-- **Index order matters**: For compound indexes, equality filters come first, then sort fields
+- **Index order matters**: Following ESR ensures optimal query performance
 
 ## 4. How would you scale this system for millions of sessions per day?
 
 ### Database Scaling:
 
 1. **MongoDB Sharding**
-   - Shard by `sessionId` (hash-based or range-based)
-   - Distributes load across multiple shards
-   - Each shard handles a subset of sessions
+   - **Shard Key**: Use `sessionId` as the shard key for both `conversationsessions` and `conversationevents` collections
+   - **Sharding Strategy**: Hash-based sharding is recommended for UUID `sessionId` values to ensure even distribution across shards
+   - **Co-location**: Sharding both collections by `sessionId` ensures that sessions and their events are stored on the same shard, enabling efficient queries without cross-shard operations
+   - **Benefits**: 
+     - Queries for a session and its events only need to hit one shard
+     - Even distribution of load across shards (UUIDs are random)
+     - Scales horizontally as data grows
 
 2. **Read Replicas**
    - Deploy read replicas for GET operations
@@ -134,6 +184,13 @@ The design handles concurrent requests safely through:
 4. **Connection Pooling**
    - Use connection pooling to manage database connections efficiently
    - Configure appropriate pool sizes based on load
+
+5. **Query Timeout (maxTimeMS)**
+   - Global `maxTimeMS` plugin applied to all MongoDB queries
+   - Default timeout: 30 seconds (configurable via `MONGODB_MAX_TIME_MS` environment variable)
+   - Prevents long-running queries from blocking the application
+   - Applied to all query operations: find, findOne, update, delete, countDocuments, aggregate
+   - Per-query overrides are supported if needed
 
 ### Application Scaling:
 
@@ -218,6 +275,7 @@ The design handles concurrent requests safely through:
 ### Event Validation & Schema Enforcement
 - **Why**: Kept payload as generic object for flexibility
 - **Production Need**: Would validate event payloads against schemas (e.g., JSON Schema)
+- **Note**: Basic validation implemented - `eventId` must be valid UUID format if provided (otherwise auto-generated), `timestamp` is auto-generated server-side
 
 ### Soft Deletes
 - **Why**: Requirements specify immutable events, no deletion mentioned
@@ -256,9 +314,18 @@ The design handles concurrent requests safely through:
 - **Production Need**: Unit tests, integration tests, E2E tests, load tests
 
 ### Documentation (API Docs)
-- **Why**: Code is self-documenting; production would need OpenAPI/Swagger
-- **Production Need**: Would provide interactive API documentation
+- **Why**: Basic Swagger/OpenAPI documentation is implemented
+- **Production Need**: Could be enhanced with more detailed examples, authentication flows, rate limiting documentation
 
 ### Deployment Configuration
 - **Why**: Assignment focuses on code; production needs Docker, K8s configs, CI/CD
 - **Production Need**: Would include Dockerfile, docker-compose, Helm charts, deployment scripts
+
+### Advanced MongoDB Configuration
+- **Why**: Basic MongoDB connection and query timeout configuration is implemented
+- **Production Need**: Could add read preferences, connection pool tuning, replica set configuration, monitoring hooks
+- **Note**: Current implementation includes:
+  - Global maxTimeMS plugin for query timeouts
+  - Connection event logging
+  - Graceful shutdown handling
+  - Debug mode for non-production environments

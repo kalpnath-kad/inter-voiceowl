@@ -13,7 +13,7 @@ export enum EventType {
 @Schema({ timestamps: false })
 export class ConversationEvent {
   @Prop({ 
-    required: true,
+    required: false,
     default: () => randomUUID(),
   })
   eventId: string;
