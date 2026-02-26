@@ -6,12 +6,12 @@ A NestJS backend service for managing conversation sessions and events in a Voic
 
 - Node.js (v18 or higher)
 - MongoDB (v5 or higher)
-- npm or yarn
+- Yarn
 
 ## Installation
 
 ```bash
-npm install
+yarn install
 ```
 
 ## Configuration
@@ -48,11 +48,11 @@ export MONGODB_MAX_TIME_MS=30000
 
 ```bash
 # Development mode
-npm run start:dev
+yarn start:dev
 
 # Production mode
-npm run build
-npm run start:prod
+yarn build
+yarn start:prod
 ```
 
 The application will start on `http://localhost:3000`
