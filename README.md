@@ -16,6 +16,8 @@ yarn install
 
 ## Configuration
 
+The application uses `@nestjs/config` to automatically load environment variables from a `.env` file.
+
 Copy the example environment file and configure your variables:
 
 ```bash
@@ -30,7 +32,9 @@ MONGODB_URI=mongodb://localhost:27017/voiceowl
 MONGODB_MAX_TIME_MS=30000
 ```
 
-Alternatively, you can set environment variables directly:
+**Note:** The `.env` file is automatically loaded when the application starts. You don't need to manually load it.
+
+Alternatively, you can set environment variables directly (they will override `.env` values):
 
 ```bash
 export PORT=3000
